@@ -28,18 +28,37 @@ No XcodeGen? Create a new iOS App in Xcode named `WeMendAI`, delete its generate
 
 ## Point it at the backend
 
-The pod has no public HTTPS, so tunnel port 8000 to your Mac:
+No SSH tunnel needed. RunPod proxies any **exposed** port over public HTTPS:
 
-```bash
-ssh -N -L 8000:127.0.0.1:8000 root@<pod-ip> -p <pod-port> -i ~/.ssh/id_ed25519
+```
+https://<pod-id>-<port>.proxy.runpod.net
 ```
 
-Then use `http://localhost:8000` in the app's Server field. Works on the **simulator**.
+That is the app's default. It works on a **physical device** as-is — public HTTPS, so
+no App Transport Security exception required.
 
-For a **physical device**, either expose the port via RunPod's HTTP proxy
-(`https://<pod-id>-8000.proxy.runpod.net`) or run the tunnel on a host the phone can
-reach and use your Mac's LAN IP. `Info.plist` allows insecure HTTP for localhost/LAN
-**for development only** — remove that before shipping.
+### Finding a port RunPod is actually proxying
+
+Only ports declared in the pod's config are proxied, and the status code tells you
+which is which:
+
+| Response | Meaning |
+|---|---|
+| `404` | Port is **not** exposed in the pod config |
+| `502` | Port **is** proxied, nothing listening yet — bind here |
+
+```bash
+for p in 8888 8080 8000 3000; do
+  echo "$p -> $(curl -s -o /dev/null -w '%{http_code}' https://<pod-id>-$p.proxy.runpod.net/health)"
+done
+```
+
+On a default RunPod pod, **8888** (the Jupyter port) is already exposed, so binding
+uvicorn there avoids editing the pod config and restarting.
+
+> ⚠️ **The proxy URL is public and the API has no auth.** Anyone with the URL can
+> send audio and consume your GPU. Fine for a solo test, not acceptable once real
+> conversations are involved — add a bearer token before then.
 
 ## Files
 

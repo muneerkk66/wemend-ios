@@ -29,7 +29,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         let session = AVAudioSession.sharedInstance()
         // .playAndRecord + .defaultToSpeaker so playback isn't routed to the earpiece.
         try session.setCategory(.playAndRecord, mode: .spokenAudio,
-                               options: [.defaultToSpeaker, .allowBluetooth])
+                               options: [.defaultToSpeaker, .allowBluetoothHFP])
         try session.setActive(true)
 
         let settings: [String: Any] = [

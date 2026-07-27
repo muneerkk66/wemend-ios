@@ -7,7 +7,9 @@ import SwiftUI
 /// than trusting a benchmark table. Not a product UI.
 struct ContentView: View {
     @StateObject private var audio = AudioRecorder()
-    @AppStorage("serverURL") private var serverURL = "http://localhost:8000"
+    // RunPod proxies this over public HTTPS, so no SSH tunnel and no ATS exception
+    // needed — works on a physical device. Pattern: https://<podId>-<port>.proxy.runpod.net
+    @AppStorage("serverURL") private var serverURL = "https://5lrojxsn35t1mv-8888.proxy.runpod.net"
     @AppStorage("voice") private var voiceRaw = TTSVoice.csm.rawValue
 
     @State private var client: VoiceClient?
