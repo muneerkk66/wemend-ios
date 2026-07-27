@@ -9,7 +9,23 @@ targets:
     platform: iOS
     sources: [WeMendAI]
     info:
+      # NOTE: xcodegen GENERATES this file from the properties below and will
+      # overwrite anything hand-written at that path. Declaring the keys here is
+      # the only thing that survives `xcodegen generate`. A missing
+      # NSMicrophoneUsageDescription makes iOS hard-kill the app the instant it
+      # touches the mic — which looks like a crash "after recording".
       path: WeMendAI/Info.plist
+      properties:
+        CFBundleDisplayName: WeMendAI
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSMicrophoneUsageDescription: >-
+          WeMendAI needs your microphone so you can speak with the mediator.
+        # Dev only: allows a plain-HTTP backend (SSH tunnel / LAN IP). The RunPod
+        # proxy is HTTPS and does not need this. Remove before shipping.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.wemendai.testapp
