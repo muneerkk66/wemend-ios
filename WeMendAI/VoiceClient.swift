@@ -6,26 +6,6 @@ import Foundation
 /// The backend cannot stream audio faster than realtime when using CSM (measured
 /// 0.43x on an RTX 4090), so there is nothing to be gained from a socket here.
 /// See the backend's docs/LATENCY.md.
-enum TTSVoice: String, CaseIterable, Identifiable {
-    case csm
-    case kokoro
-
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .csm:    return "Sesame CSM"
-        case .kokoro: return "Kokoro"
-        }
-    }
-    /// Shown in the UI so the tradeoff is visible while testing.
-    var blurb: String {
-        switch self {
-        case .csm:    return "Warmer voice · ~2.4x slower than realtime"
-        case .kokoro: return "Plainer voice · ~50x faster than realtime"
-        }
-    }
-}
-
 struct TurnResult: Decodable {
     let heard: String
     let replyText: String
@@ -125,7 +105,10 @@ actor VoiceClient {
         return id
     }
 
-    func send(audio fileURL: URL, voice: TTSVoice,
+    /// Voice is fixed to Sesame CSM server-side (TTS_ENGINE=csm), so no engine
+    /// parameter is sent. Expect this call to take a while: CSM runs ~0.43x
+    /// realtime, so a 10s reply needs ~25s.
+    func send(audio fileURL: URL,
               speaker: String, listener: String) async throws -> (TurnResult, Data) {
         let sid = try await ensureSession(speaker: speaker, listener: listener)
 
@@ -133,7 +116,6 @@ actor VoiceClient {
         req.httpMethod = "POST"
         let body = MultipartBody()
         body.addField("session_id", sid)
-        body.addField("voice", voice.rawValue)
         body.addFile("audio", filename: fileURL.lastPathComponent,
                      mimeType: "audio/m4a", data: try Data(contentsOf: fileURL))
         req.setValue(body.contentType, forHTTPHeaderField: "Content-Type")

@@ -1,18 +1,34 @@
 # wemend-ios
 
-Test harness for the [WeMendAI voice backend](https://github.com/muneerkk66/wemend-backend).
-SwiftUI, iOS 17+.
+Voice UI for **WeMendAI** — an AI mediator for couples. SwiftUI, iOS 17+.
 
-Not a product UI. Its job is to let you **hear CSM vs Kokoro on a real device** and see
-exactly what each costs, instead of trusting a benchmark table.
+Full-screen voice call: tap the orb, speak, the mediator replies aloud. Modelled on
+ChatGPT's voice mode — black gradient backdrop, an animated orb, and a live waveform.
 
-## What it does
+## The orb
 
-Record an utterance → upload → mediator replies aloud → shows the transcript and a
-per-stage latency breakdown (STT / LLM / TTS / total) plus the measured realtime factor.
+One view, four states, all driven by a single `TimelineView` clock so every layer
+stays in phase. The waveform is **driven by real audio amplitude**, not a canned
+loop — `AudioRecorder` meters both directions, so the orb reacts to your voice while
+listening and to the mediator's voice while speaking.
 
-A segmented control switches TTS engine per request. Expect the difference to be
-obvious: Kokoro replies in ~3 s, CSM takes ~25 s for the same reply.
+| State | Colour | Motion |
+|---|---|---|
+| Idle | slate | slow breathing pulse, faint ripples |
+| Listening | blue | ripples emit outward, waveform tracks mic level |
+| Thinking | violet | counter-rotating arcs + drifting dots |
+| Speaking | teal | waveform tracks playback amplitude |
+
+Levels are smoothed with a fast attack / slow release so the orb responds without
+twitching on metering jitter.
+
+## Voice
+
+Fixed to **Sesame CSM-1B** — no engine picker. It has the warmest prosody, which is
+what this product needs, but it runs at ~0.43x realtime, so a reply takes roughly
+2.4x its spoken length to generate. The "Thinking" state is therefore a genuine
+wait; naming it (rather than showing a bare spinner) keeps a 20s pause from reading
+as a hang.
 
 ## Build
 
@@ -26,47 +42,36 @@ No XcodeGen? Create a new iOS App in Xcode named `WeMendAI`, delete its generate
 `ContentView.swift`, drag in the four files from `WeMendAI/`, and set
 `NSMicrophoneUsageDescription` in Info.plist.
 
-## Point it at the backend
+## Backend connection
 
-No SSH tunnel needed. RunPod proxies any **exposed** port over public HTTPS:
+The server URL is **not on the main screen** — it lives in `Config.swift` and the
+hidden settings sheet (the ⋯ button), so the app reads as a product rather than a
+test harness.
+
+It defaults to RunPod's public HTTPS proxy, which works on a **physical device** with
+no tunnel and no ATS exception:
 
 ```
 https://<pod-id>-<port>.proxy.runpod.net
 ```
 
-That is the app's default. It works on a **physical device** as-is — public HTTPS, so
-no App Transport Security exception required.
+Only ports declared in the pod config are proxied, and the status code tells you
+which: **404** = not exposed, **502** = proxied but nothing listening (bind here).
+Default pods already expose **8888**, so binding uvicorn there avoids editing the pod
+config and restarting.
 
-### Finding a port RunPod is actually proxying
-
-Only ports declared in the pod's config are proxied, and the status code tells you
-which is which:
-
-| Response | Meaning |
-|---|---|
-| `404` | Port is **not** exposed in the pod config |
-| `502` | Port **is** proxied, nothing listening yet — bind here |
-
-```bash
-for p in 8888 8080 8000 3000; do
-  echo "$p -> $(curl -s -o /dev/null -w '%{http_code}' https://<pod-id>-$p.proxy.runpod.net/health)"
-done
-```
-
-On a default RunPod pod, **8888** (the Jupyter port) is already exposed, so binding
-uvicorn there avoids editing the pod config and restarting.
-
-> ⚠️ **The proxy URL is public and the API has no auth.** Anyone with the URL can
-> send audio and consume your GPU. Fine for a solo test, not acceptable once real
-> conversations are involved — add a bearer token before then.
+> ⚠️ The proxy URL is public and the API has no auth — anyone with it can send audio
+> and consume your GPU. Fine for solo testing, not once real conversations exist.
 
 ## Files
 
 | File | What |
 |---|---|
+| `ContentView.swift` | Full-screen voice call, phase state machine, hidden settings |
+| `VoiceOrb.swift` | The orb + aurora backdrop (Canvas waveform, ripples, arcs) |
+| `AudioRecorder.swift` | Record 16 kHz mono m4a; meters mic **and** playback |
 | `VoiceClient.swift` | API client, multipart upload, 300 s timeout (CSM is slow) |
-| `AudioRecorder.swift` | AVFoundation record (16 kHz mono m4a) + playback + level meter |
-| `ContentView.swift` | UI, engine picker, latency readout |
+| `Config.swift` | Server URL and placeholder names, kept out of the UI |
 
 ## Notes
 
