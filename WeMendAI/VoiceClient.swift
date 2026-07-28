@@ -42,6 +42,24 @@ struct TurnResult: Decodable {
     }
 }
 
+struct AuthedUser: Decodable {
+    let userId: String
+    let displayName: String?
+    let onboardingComplete: Bool
+    let hasPartner: Bool
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case displayName = "display_name"
+        case onboardingComplete = "onboarding_complete"
+        case hasPartner = "has_partner"
+    }
+}
+
+struct SignInResponse: Decodable {
+    let token: String
+    let user: AuthedUser
+}
+
 struct Health: Decodable {
     let ready: Bool
     let llm: String
@@ -56,9 +74,12 @@ enum ClientError: LocalizedError {
     case badStatus(Int, String)
     case notReady
     case forbidden
+    case signedOut
 
     var errorDescription: String? {
         switch self {
+        case .signedOut:
+            return "Please sign in again."
         case .forbidden:
             return "This session is no longer valid. Start a new call."
         case .notReady:
@@ -72,14 +93,14 @@ enum ClientError: LocalizedError {
 actor VoiceClient {
     private let baseURL: URL
     private var sessionID: String?
-    /// Returned once by POST /session and required as `Authorization: Bearer` on
-    /// every other call. Without it the server 403s: the session id alone is not
-    /// enough, because ids travel in URLs and logs.
-    private var sessionSecret: String?
+    /// The user's session token from Keychain. Replaces the Phase 0 per-session
+    /// secret: identity now authorises, and the backend checks ownership by query.
+    private var bearer: String?
     private let urlSession: URLSession
 
-    init(baseURL: URL) {
+    init(baseURL: URL, bearer: String? = nil) {
         self.baseURL = baseURL
+        self.bearer = bearer
         let cfg = URLSessionConfiguration.default
         // CSM can take ~25s to synthesize a 10s reply — the default 60s timeout
         // is not enough once model load or a long reply is involved.
@@ -89,9 +110,38 @@ actor VoiceClient {
     }
 
     private func authorized(_ req: inout URLRequest) throws {
-        guard let secret = sessionSecret else { throw ClientError.notReady }
-        req.setValue("Bearer \(secret)", forHTTPHeaderField: "Authorization")
+        guard let bearer else { throw ClientError.signedOut }
+        req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
     }
+
+    /// Exchange an Apple credential for our own session token.
+    ///
+    /// `rawNonce` is sent, not its hash: the server hashes it and compares against the
+    /// hash Apple embedded in the identity token. `authorizationCode` is mandatory on
+    /// first sign-in — it is the only source of a refresh token, and the refresh token
+    /// is the only thing that can later revoke the account.
+    func signInWithApple(identityToken: String, authorizationCode: String?,
+                        rawNonce: String, fullName: String?,
+                        deviceName: String?) async throws -> SignInResponse {
+        var req = URLRequest(url: baseURL.appending(path: "auth/apple"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "identity_token": identityToken,
+            "authorization_code": authorizationCode as Any,
+            "nonce": rawNonce,
+            "full_name": fullName as Any,
+            "device_name": deviceName as Any,
+        ].compactMapValues { $0 is NSNull ? nil : $0 })
+
+        let (data, resp) = try await urlSession.data(for: req)
+        try Self.check(resp, data)
+        let res = try JSONDecoder().decode(SignInResponse.self, from: data)
+        bearer = res.token
+        return res
+    }
+
+    func setBearer(_ token: String?) { bearer = token; sessionID = nil }
 
     func health() async throws -> Health {
         let (data, resp) = try await urlSession.data(from: baseURL.appending(path: "health"))
@@ -99,31 +149,30 @@ actor VoiceClient {
         return try JSONDecoder().decode(Health.self, from: data)
     }
 
-    /// Creates a session once and reuses it so the mediator keeps conversational context.
-    func ensureSession(speaker: String, listener: String) async throws -> String {
+    /// Creates a session once and reuses it so the mediator keeps conversational
+    /// context. Names now come from the account, not from the client.
+    func ensureSession(kind: String = "private") async throws -> String {
         if let sessionID { return sessionID }
         var req = URLRequest(url: baseURL.appending(path: "session"))
         req.httpMethod = "POST"
+        try authorized(&req)
         let body = MultipartBody()
-        body.addField("speaker", speaker)
-        body.addField("listener", listener)
+        body.addField("kind", kind)
         req.setValue(body.contentType, forHTTPHeaderField: "Content-Type")
 
         let (data, resp) = try await urlSession.upload(for: req, from: body.finalize())
         try Self.check(resp, data)
-        struct R: Decodable { let session_id: String; let session_secret: String }
-        let r = try JSONDecoder().decode(R.self, from: data)
-        sessionID = r.session_id
-        sessionSecret = r.session_secret
-        return r.session_id
+        struct R: Decodable { let session_id: String }
+        let id = try JSONDecoder().decode(R.self, from: data).session_id
+        sessionID = id
+        return id
     }
 
     /// Voice is fixed to Sesame CSM server-side (TTS_ENGINE=csm), so no engine
     /// parameter is sent. Expect this call to take a while: CSM runs ~0.43x
     /// realtime, so a 10s reply needs ~25s.
-    func send(audio fileURL: URL,
-              speaker: String, listener: String) async throws -> (TurnResult, Data) {
-        let sid = try await ensureSession(speaker: speaker, listener: listener)
+    func send(audio fileURL: URL) async throws -> (TurnResult, Data) {
+        let sid = try await ensureSession()
 
         var req = URLRequest(url: baseURL.appending(path: "turn"))
         req.httpMethod = "POST"
@@ -138,11 +187,10 @@ actor VoiceClient {
         try Self.check(resp, data)
         let result = try JSONDecoder().decode(TurnResult.self, from: data)
 
-        // Fetch the reply audio. /audio is scoped to the session that produced it,
-        // so it needs both the session id and the bearer secret.
+        // /audio is scoped to the OWNER now, so the bearer alone is sufficient —
+        // no session id in the query string.
         var audioReq = URLRequest(
-            url: baseURL.appending(path: String(result.audioURL.dropFirst()))
-                       .appending(queryItems: [URLQueryItem(name: "session_id", value: sid)]))
+            url: baseURL.appending(path: String(result.audioURL.dropFirst())))
         try authorized(&audioReq)
         let (audioData, audioResp) = try await urlSession.data(for: audioReq)
         try Self.check(audioResp, audioData)
@@ -150,16 +198,15 @@ actor VoiceClient {
     }
 
     /// Reset conversational context (new call).
-    func endSession() {
-        sessionID = nil
-        sessionSecret = nil
-    }
+    func endSession() { sessionID = nil }
 
     private static func check(_ resp: URLResponse, _ data: Data) throws {
         guard let http = resp as? HTTPURLResponse else { return }
         guard (200..<300).contains(http.statusCode) else {
             if http.statusCode == 503 { throw ClientError.notReady }
             if http.statusCode == 403 { throw ClientError.forbidden }
+            // A revoked or expired token: the caller must clear Keychain and re-auth.
+            if http.statusCode == 401 { throw ClientError.signedOut }
             let body = String(data: data.prefix(400), encoding: .utf8) ?? ""
             throw ClientError.badStatus(http.statusCode, body)
         }

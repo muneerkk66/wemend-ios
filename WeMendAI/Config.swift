@@ -13,9 +13,7 @@ enum Config {
     /// hostname in front of it — see the backend's Phase 0b.
     static let defaultServerURL = "https://tg902v9mwkzxd6-8888.proxy.runpod.net"
 
-    /// Placeholder identities until pairing exists. The relay prompt needs real
-    /// names to avoid the perspective-flip failure mode — see the backend's
-    /// prompts/relay_distill.md.
-    static let speakerName = "Adam"
-    static let listenerName = "Sara"
+    // Placeholder names are gone: the server derives the speaker from the signed-in
+    // account's profile, and the partner's name will come from the partner's own
+    // account after pairing — never from what this user called them.
 }

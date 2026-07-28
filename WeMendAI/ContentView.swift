@@ -9,6 +9,7 @@ import SwiftUI
 /// hidden settings sheet (long-press the status line) so the main surface reads like
 /// a product rather than a test harness. Voice is fixed to Sesame CSM.
 struct ContentView: View {
+    @EnvironmentObject private var auth: Auth
     @StateObject private var audio = AudioRecorder()
     @AppStorage("serverURL") private var serverURL = Config.defaultServerURL
 
@@ -296,9 +297,9 @@ struct ContentView: View {
         withAnimation { phase = .thinking }
         let started = Date()
         do {
-            let (result, data) = try await c.send(audio: file,
-                                                 speaker: Config.speakerName,
-                                                 listener: Config.listenerName)
+            // No names passed any more: the server reads the speaker from the
+            // signed-in account's profile.
+            let (result, data) = try await c.send(audio: file)
             lastTurnSeconds = Date().timeIntervalSince(started)
             withAnimation {
                 transcript.append(Line(mine: true, text: result.heard))
@@ -310,6 +311,9 @@ struct ContentView: View {
             }
         } catch {
             withAnimation { phase = .idle }
+            // A revoked/expired token: clear it so the app returns to sign-in instead
+            // of retrying forever with a token the server has already rejected.
+            if case ClientError.signedOut = error { auth.clear(); return }
             show(error.localizedDescription)
         }
     }
