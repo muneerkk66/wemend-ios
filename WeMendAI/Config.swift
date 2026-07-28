@@ -7,7 +7,11 @@ enum Config {
     /// RunPod proxies exposed pod ports over public HTTPS, so this works on a
     /// physical device with no tunnel and no ATS exception.
     /// Pattern: https://<pod-id>-<port>.proxy.runpod.net
-    static let defaultServerURL = "https://5lrojxsn35t1mv-8888.proxy.runpod.net"
+    ///
+    /// NOTE: the pod id changes whenever the pod is RECREATED (not merely restarted),
+    /// so this constant is a moving target. That is the argument for putting a stable
+    /// hostname in front of it — see the backend's Phase 0b.
+    static let defaultServerURL = "https://tg902v9mwkzxd6-8888.proxy.runpod.net"
 
     /// Placeholder identities until pairing exists. The relay prompt needs real
     /// names to avoid the perspective-flip failure mode — see the backend's
