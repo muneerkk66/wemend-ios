@@ -240,9 +240,20 @@ struct ContentView: View {
 
     // MARK: actions
 
+    /// The ONLY place a VoiceClient is built on this screen.
+    ///
+    /// It exists so the bearer can never be forgotten. A client constructed without
+    /// one throws on its first authorised call, and that used to be read as "your
+    /// session expired" — which is why voice failed and dumped the user back to
+    /// sign-in after onboarding.
+    private func makeClient() -> VoiceClient? {
+        guard let url = URL(string: serverURL.trimmingCharacters(in: .whitespaces)),
+              let token = auth.token else { return nil }
+        return VoiceClient(baseURL: url, bearer: token)
+    }
+
     private func connect() async {
-        guard let url = URL(string: serverURL.trimmingCharacters(in: .whitespaces)) else { return }
-        let c = VoiceClient(baseURL: url)
+        guard let c = makeClient() else { return }
         client = c
         // Warm the connection; surface only a hard failure, not "still loading".
         if let h = try? await c.health(), !h.ready {
@@ -313,7 +324,13 @@ struct ContentView: View {
             withAnimation { phase = .idle }
             // A revoked/expired token: clear it so the app returns to sign-in instead
             // of retrying forever with a token the server has already rejected.
+            // Only a genuine server 401 means the session is gone. A locally missing
+            // token is a programming error and must not log the user out.
             if case ClientError.signedOut = error { auth.clear(); return }
+            if case ClientError.missingToken = error {
+                show("Internal error: request built without a token.")
+                return
+            }
             show(error.localizedDescription)
         }
     }

@@ -74,12 +74,18 @@ enum ClientError: LocalizedError {
     case badStatus(Int, String)
     case notReady
     case forbidden
+    /// The SERVER rejected our token (401). The session really is over.
     case signedOut
+    /// We built a request without a token. Our bug, not the user's problem — and
+    /// crucially NOT a reason to clear their session.
+    case missingToken
 
     var errorDescription: String? {
         switch self {
         case .signedOut:
             return "Please sign in again."
+        case .missingToken:
+            return "Internal error: no session token was attached."
         case .forbidden:
             return "This session is no longer valid. Start a new call."
         case .notReady:
@@ -110,7 +116,7 @@ actor VoiceClient {
     }
 
     private func authorized(_ req: inout URLRequest) throws {
-        guard let bearer else { throw ClientError.signedOut }
+        guard let bearer else { throw ClientError.missingToken }
         req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
     }
 
