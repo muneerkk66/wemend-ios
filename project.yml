@@ -1,6 +1,6 @@
 name: WeMendAI
 options:
-  bundleIdPrefix: com.wemendai
+  bundleIdPrefix: com.necsca
   deploymentTarget:
     iOS: "17.0"
 targets:
@@ -26,9 +26,14 @@ targets:
         # proxy is HTTPS and does not need this. Remove before shipping.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+    entitlements:
+      path: WeMendAI/WeMendAI.entitlements
+      properties:
+        com.apple.developer.applesignin: [Default]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.wemendai.testapp
+        DEVELOPMENT_TEAM: Y89LU2A58Y
+        PRODUCT_BUNDLE_IDENTIFIER: com.necsca.wemendai
         MARKETING_VERSION: "0.1"
         SWIFT_VERSION: "5.9"
         GENERATE_INFOPLIST_FILE: NO
