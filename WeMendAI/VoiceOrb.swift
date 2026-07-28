@@ -16,6 +16,9 @@ enum OrbState: Equatable {
 struct VoiceOrb: View {
     var state: OrbState
     var level: CGFloat
+    /// 0...1 through the trailing-silence window. Drawn as a closing ring so the
+    /// user can see the turn is about to send instead of being cut off blind.
+    var silenceProgress: CGFloat = 0
 
     // Smoothed level — raw metering is jittery and makes the orb twitch.
     @State private var smoothed: CGFloat = 0
@@ -33,6 +36,9 @@ struct VoiceOrb: View {
                 }
                 if state == .thinking {
                     thinkingArc(t)
+                }
+                if state == .listening && silenceProgress > 0.02 {
+                    silenceRing
                 }
             }
             .onChange(of: level) { _, new in
@@ -138,6 +144,17 @@ struct VoiceOrb: View {
                            style: StrokeStyle(lineWidth: 2.1, lineCap: .round))
             }
         }
+    }
+
+    /// Closes clockwise as the trailing silence elapses; completing it sends.
+    private var silenceRing: some View {
+        Circle()
+            .trim(from: 0, to: silenceProgress)
+            .stroke(tint.opacity(0.9),
+                    style: StrokeStyle(lineWidth: 3, lineCap: .round))
+            .rotationEffect(.degrees(-90))
+            .scaleEffect(1.02)
+            .animation(.linear(duration: 1.0 / 30), value: silenceProgress)
     }
 
     /// Two counter-rotating arcs while the backend works.

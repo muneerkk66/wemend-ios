@@ -2,6 +2,9 @@ import SwiftUI
 
 /// Full-screen voice call with the mediator.
 ///
+/// Tap the orb to start; it sends itself once you stop talking (trailing-silence
+/// VAD in AudioRecorder), so there is no mic button and no "stop" tap.
+///
 /// No server field, no engine picker, no latency table on screen — those live in a
 /// hidden settings sheet (long-press the status line) so the main surface reads like
 /// a product rather than a test harness. Voice is fixed to Sesame CSM.
@@ -31,7 +34,8 @@ struct ContentView: View {
         var caption: String {
             switch self {
             case .idle: "Tap to talk"
-            case .listening: "Listening"
+            case .listening: "Listening"      // auto-sends when you stop
+
             // CSM runs ~2.4x slower than realtime, so this is a genuine wait.
             // Naming it keeps a 20s pause from reading as a hang.
             case .thinking: "Thinking"
@@ -62,8 +66,11 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 header
                 Spacer(minLength: 8)
-                VoiceOrb(state: phase.orb, level: audio.level)
+                VoiceOrb(state: phase.orb, level: audio.level,
+                         silenceProgress: audio.silenceProgress)
                     .onTapGesture { Task { await tapOrb() } }
+                    .accessibilityLabel(phase == .listening ? "Listening, tap to send"
+                                                            : "Tap to talk")
                 caption
                 Spacer(minLength: 8)
                 transcriptView
@@ -169,35 +176,30 @@ struct ContentView: View {
         }
     }
 
+    /// No mic button by design — the orb is the control, and the turn ends itself.
+    /// Only shows an escape hatch when one is genuinely useful.
     private var controls: some View {
         HStack(spacing: 18) {
             if phase == .speaking {
-                secondaryButton("Stop", "stop.fill") { audio.stopPlayback(); phase = .idle }
-            } else if !transcript.isEmpty && phase == .idle {
+                secondaryButton("Skip", "forward.end.fill") {
+                    audio.stopPlayback(); withAnimation { phase = .idle }
+                }
+            }
+            if phase == .listening {
+                secondaryButton("Cancel", "xmark") {
+                    _ = audio.stopRecording(); withAnimation { phase = .idle }
+                }
+            }
+            if phase == .idle && !transcript.isEmpty {
                 secondaryButton("New call", "arrow.counterclockwise") {
                     Task { await client?.endSession(); transcript = []; error = nil }
                 }
             }
-
-            Button {
-                Task { await tapOrb() }
-            } label: {
-                ZStack {
-                    Circle().fill(phase == .listening ? Color.red : .white)
-                        .frame(width: 68, height: 68)
-                        .shadow(color: (phase == .listening ? Color.red : tint).opacity(0.6), radius: 18)
-                    Image(systemName: phase == .listening ? "stop.fill" : "mic.fill")
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(phase == .listening ? .white : .black)
-                }
-                .scaleEffect(phase == .listening ? 1.06 : 1)
-            }
-            .disabled(phase == .thinking)
-            .opacity(phase == .thinking ? 0.4 : 1)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: phase)
         }
-        .padding(.bottom, 26)
-        .padding(.top, 14)
+        .frame(height: 62)
+        .padding(.bottom, 30)
+        .padding(.top, 10)
+        .animation(.spring(response: 0.32, dampingFraction: 0.78), value: phase)
     }
 
     private func secondaryButton(_ label: String, _ icon: String,
@@ -251,12 +253,9 @@ struct ContentView: View {
         case .speaking:
             audio.stopPlayback(); phase = .idle
         case .listening:
-            guard let file = audio.stopRecording() else {
-                phase = .idle
-                show("That was too short — hold it a little longer.")
-                return
-            }
-            await send(file)
+            // Tapping while listening just sends immediately; normally the
+            // trailing-silence detector does this for you.
+            await finishListening()
         case .idle:
             guard await audio.requestPermission() else {
                 show("Microphone access is off. Enable it in Settings.")
@@ -264,12 +263,28 @@ struct ContentView: View {
             }
             do {
                 audio.stopPlayback()
+                audio.onSpeechEnded = { [self] in
+                    Task { await finishListening() }
+                }
                 try audio.startRecording()
                 withAnimation { phase = .listening }
             } catch {
                 show("Could not start recording.")
             }
         }
+    }
+
+    /// Ends the listening turn and sends. Guarded: the VAD callback and a manual
+    /// tap can both land, and sending twice would duplicate the turn.
+    private func finishListening() async {
+        guard phase == .listening else { return }
+        audio.onSpeechEnded = nil
+        guard let file = audio.stopRecording() else {
+            withAnimation { phase = .idle }
+            show("I didn't catch that — try again.")
+            return
+        }
+        await send(file)
     }
 
     private func send(_ file: URL) async {

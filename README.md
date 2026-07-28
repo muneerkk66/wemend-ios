@@ -2,8 +2,26 @@
 
 Voice UI for **WeMendAI** — an AI mediator for couples. SwiftUI, iOS 17+.
 
-Full-screen voice call: tap the orb, speak, the mediator replies aloud. Modelled on
-ChatGPT's voice mode — black gradient backdrop, an animated orb, and a live waveform.
+Full-screen voice call: tap the orb, speak, and **stop** — it detects that you've
+finished and sends automatically. No mic button, no stop button. Modelled on ChatGPT's
+voice mode: black gradient backdrop, an animated orb, live waveform.
+
+## Turn-taking
+
+Trailing-silence VAD in `AudioRecorder`, driven off the same 30 Hz metering that
+feeds the orb — no extra audio tap:
+
+- Two thresholds, not one: speech is `level ≥ 0.30`, silence is `< 0.12`. The gap in
+  between holds the countdown rather than resetting it, so a breath or a wavering
+  tail doesn't restart the turn — and doesn't end it early either.
+- Armed only *after* speech is detected, otherwise the quiet before you start talking
+  would immediately end the turn.
+- **1.3 s** of trailing silence sends it. A closing ring draws around the orb as that
+  window elapses, so the send is visible rather than abrupt.
+- Tapping the orb while listening sends immediately; `Cancel` discards.
+
+Send is guarded against double-fire: the VAD callback and a manual tap can both
+land, and sending twice would duplicate the turn.
 
 ## The orb
 
