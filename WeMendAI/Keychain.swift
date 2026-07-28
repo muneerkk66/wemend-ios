@@ -77,6 +77,24 @@ final class Auth: ObservableObject {
         hasPartner = user.hasPartner
     }
 
+    func markOnboardingComplete() { onboardingComplete = true }
+
+    /// Re-read state from the server on launch. The Keychain token survives reinstall
+    /// of nothing, but onboarding state lives server-side, so a fresh install with a
+    /// valid token must not be sent through onboarding again.
+    func refresh() async {
+        guard let token, let url = URL(string: Config.defaultServerURL) else { return }
+        do {
+            let p = try await ProfileClient(baseURL: url, bearer: token).get()
+            displayName = p.displayName
+            onboardingComplete = p.onboardingComplete
+        } catch ClientError.signedOut {
+            clear()
+        } catch {
+            // Offline: keep whatever we had rather than bouncing the user to sign-in.
+        }
+    }
+
     /// Clears local state. Call after a successful sign-out or account deletion, and
     /// on a 401 — a token the server has revoked is worse than no token, because the
     /// UI would keep retrying with it.
