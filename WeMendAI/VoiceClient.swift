@@ -55,9 +55,12 @@ struct Health: Decodable {
 enum ClientError: LocalizedError {
     case badStatus(Int, String)
     case notReady
+    case forbidden
 
     var errorDescription: String? {
         switch self {
+        case .forbidden:
+            return "This session is no longer valid. Start a new call."
         case .notReady:
             return "Server is still loading models. CSM takes ~45s, Whisper ~2min."
         case let .badStatus(code, body):
@@ -69,6 +72,10 @@ enum ClientError: LocalizedError {
 actor VoiceClient {
     private let baseURL: URL
     private var sessionID: String?
+    /// Returned once by POST /session and required as `Authorization: Bearer` on
+    /// every other call. Without it the server 403s: the session id alone is not
+    /// enough, because ids travel in URLs and logs.
+    private var sessionSecret: String?
     private let urlSession: URLSession
 
     init(baseURL: URL) {
@@ -79,6 +86,11 @@ actor VoiceClient {
         cfg.timeoutIntervalForRequest = 300
         cfg.timeoutIntervalForResource = 600
         self.urlSession = URLSession(configuration: cfg)
+    }
+
+    private func authorized(_ req: inout URLRequest) throws {
+        guard let secret = sessionSecret else { throw ClientError.notReady }
+        req.setValue("Bearer \(secret)", forHTTPHeaderField: "Authorization")
     }
 
     func health() async throws -> Health {
@@ -99,10 +111,11 @@ actor VoiceClient {
 
         let (data, resp) = try await urlSession.upload(for: req, from: body.finalize())
         try Self.check(resp, data)
-        struct R: Decodable { let session_id: String }
-        let id = try JSONDecoder().decode(R.self, from: data).session_id
-        sessionID = id
-        return id
+        struct R: Decodable { let session_id: String; let session_secret: String }
+        let r = try JSONDecoder().decode(R.self, from: data)
+        sessionID = r.session_id
+        sessionSecret = r.session_secret
+        return r.session_id
     }
 
     /// Voice is fixed to Sesame CSM server-side (TTS_ENGINE=csm), so no engine
@@ -114,6 +127,7 @@ actor VoiceClient {
 
         var req = URLRequest(url: baseURL.appending(path: "turn"))
         req.httpMethod = "POST"
+        try authorized(&req)
         let body = MultipartBody()
         body.addField("session_id", sid)
         body.addFile("audio", filename: fileURL.lastPathComponent,
@@ -124,20 +138,28 @@ actor VoiceClient {
         try Self.check(resp, data)
         let result = try JSONDecoder().decode(TurnResult.self, from: data)
 
-        // Fetch the reply audio (relative path returned by the API).
-        let audioURL = baseURL.appending(path: String(result.audioURL.dropFirst()))
-        let (audioData, audioResp) = try await urlSession.data(from: audioURL)
+        // Fetch the reply audio. /audio is scoped to the session that produced it,
+        // so it needs both the session id and the bearer secret.
+        var audioReq = URLRequest(
+            url: baseURL.appending(path: String(result.audioURL.dropFirst()))
+                       .appending(queryItems: [URLQueryItem(name: "session_id", value: sid)]))
+        try authorized(&audioReq)
+        let (audioData, audioResp) = try await urlSession.data(for: audioReq)
         try Self.check(audioResp, audioData)
         return (result, audioData)
     }
 
     /// Reset conversational context (new call).
-    func endSession() { sessionID = nil }
+    func endSession() {
+        sessionID = nil
+        sessionSecret = nil
+    }
 
     private static func check(_ resp: URLResponse, _ data: Data) throws {
         guard let http = resp as? HTTPURLResponse else { return }
         guard (200..<300).contains(http.statusCode) else {
             if http.statusCode == 503 { throw ClientError.notReady }
+            if http.statusCode == 403 { throw ClientError.forbidden }
             let body = String(data: data.prefix(400), encoding: .utf8) ?? ""
             throw ClientError.badStatus(http.statusCode, body)
         }
