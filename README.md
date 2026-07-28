@@ -23,6 +23,17 @@ feeds the orb — no extra audio tap:
 Send is guarded against double-fire: the VAD callback and a manual tap can both
 land, and sending twice would duplicate the turn.
 
+## Brand
+
+Palette in `Brand.swift` is sampled from the app icon so the two read as one product:
+deep navy tile (`#141A3C` → `#0B0F26`) with the icon's teal → cyan → violet sweep
+(`#3DE0B0 → #2ED9C3 → #35A8E8 → #4F8FF0 → #8B6FE8`).
+
+Per-state accents stay inside that palette rather than inventing new hues, and each
+maps to something in the icon: listening = the waveform teal, thinking = the female
+silhouette violet, speaking = the heart mint. The wordmark mirrors the icon too —
+"WeMend" solid, "AI" in the gradient, with the `LISTEN · UNDERSTAND · HEAL` tagline.
+
 ## The orb
 
 One view, four states, all driven by a single `TimelineView` clock so every layer

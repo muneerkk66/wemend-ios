@@ -53,14 +53,7 @@ struct VoiceOrb: View {
 
     // MARK: layers
 
-    private var tint: Color {
-        switch state {
-        case .idle:      return Color(red: 0.42, green: 0.47, blue: 0.62)
-        case .listening: return Color(red: 0.35, green: 0.72, blue: 0.98)
-        case .thinking:  return Color(red: 0.62, green: 0.52, blue: 0.98)
-        case .speaking:  return Color(red: 0.40, green: 0.86, blue: 0.78)
-        }
-    }
+    private var tint: Color { Brand.accent(state) }
 
     /// Soft bloom behind everything; breathes slowly at idle, swells with voice.
     private func outerGlow(_ t: TimeInterval) -> some View {
@@ -96,13 +89,18 @@ struct VoiceOrb: View {
     private func core(_ t: TimeInterval) -> some View {
         let pulse = 1 + (state == .idle ? 0.02 * sin(t * 1.4) : smoothed * 0.16)
         return ZStack {
+            // The icon's signature sweep runs across the orb the same way it runs
+            // across the two silhouettes, with the active state's accent mixed in.
             Circle()
                 .fill(
-                    LinearGradient(
-                        colors: [tint.opacity(0.95), tint.opacity(0.55),
-                                 Color.black.opacity(0.85)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    )
+                    LinearGradient(gradient: Brand.sweep,
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                )
+            Circle()
+                .fill(
+                    LinearGradient(colors: [tint.opacity(0.55), .clear,
+                                            Brand.navyDeep.opacity(0.75)],
+                                   startPoint: .top, endPoint: .bottom)
                 )
             Circle()
                 .fill(
@@ -188,8 +186,8 @@ struct AuroraBackground: View {
             // their fixed 460pt frame can't widen the parent past the screen —
             // which otherwise pushes sibling content off both edges.
             LinearGradient(
-                colors: [Color(white: 0.055), .black, Color(white: 0.02)],
-                startPoint: .top, endPoint: .bottom
+                colors: [Brand.navy, Brand.navyDeep, Color(hex: 0x05070F)],
+                startPoint: .topLeading, endPoint: .bottom
             )
             .overlay {
                 ZStack {

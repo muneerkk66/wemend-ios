@@ -50,14 +50,7 @@ struct ContentView: View {
         let text: String
     }
 
-    private var tint: Color {
-        switch phase {
-        case .idle: Color(red: 0.42, green: 0.47, blue: 0.62)
-        case .listening: Color(red: 0.35, green: 0.72, blue: 0.98)
-        case .thinking: Color(red: 0.62, green: 0.52, blue: 0.98)
-        case .speaking: Color(red: 0.40, green: 0.86, blue: 0.78)
-        }
-    }
+    private var tint: Color { Brand.accent(phase.orb) }
 
     var body: some View {
         ZStack {
@@ -93,9 +86,19 @@ struct ContentView: View {
 
     private var header: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("WeMendAI").font(.title3.weight(.semibold))
-                Text("Mediator").font(.caption).foregroundStyle(.white.opacity(0.45))
+            VStack(alignment: .leading, spacing: 3) {
+                // Matches the icon's wordmark: "WeMend" solid, "AI" in the sweep.
+                HStack(spacing: 0) {
+                    Text("WeMend").foregroundStyle(.white)
+                    Text("AI").foregroundStyle(
+                        LinearGradient(gradient: Brand.sweep,
+                                       startPoint: .leading, endPoint: .trailing))
+                }
+                .font(.title3.weight(.semibold))
+                Text("LISTEN · UNDERSTAND · HEAL")
+                    .font(.system(size: 8.5, weight: .semibold))
+                    .tracking(1.7)
+                    .foregroundStyle(Brand.teal.opacity(0.75))
             }
             Spacer()
             Button {
@@ -105,7 +108,7 @@ struct ContentView: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.5))
                     .frame(width: 34, height: 34)
-                    .background(.white.opacity(0.07), in: Circle())
+                    .background(Brand.navyLift.opacity(0.85), in: Circle())
             }
         }
         .foregroundStyle(.white)
@@ -152,7 +155,8 @@ struct ContentView: View {
                                 .padding(.horizontal, 14).padding(.vertical, 9)
                                 .background(
                                     RoundedRectangle(cornerRadius: 15, style: .continuous)
-                                        .fill(.white.opacity(line.mine ? 0.06 : 0.11))
+                                        .fill(line.mine ? Color.white.opacity(0.06)
+                                                        : Brand.navyLift.opacity(0.9))
                                 )
                             if !line.mine { Spacer(minLength: 40) }
                         }
@@ -211,7 +215,7 @@ struct ContentView: View {
             }
             .foregroundStyle(.white.opacity(0.7))
             .frame(width: 58, height: 58)
-            .background(.white.opacity(0.08), in: Circle())
+            .background(Brand.navyLift.opacity(0.85), in: Circle())
         }
         .transition(.scale.combined(with: .opacity))
     }
